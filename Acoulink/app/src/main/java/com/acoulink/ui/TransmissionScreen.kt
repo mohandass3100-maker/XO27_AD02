@@ -115,28 +115,42 @@ fun TransmissionScreen(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = when (uiState.state) {
-                        TransmissionState.COMPLETED -> SuccessGreen.copy(alpha = 0.12f)
+                        TransmissionState.COMPLETED, TransmissionState.BEACON_ACTIVE -> SuccessGreen.copy(alpha = 0.12f)
                         TransmissionState.WAITING_ACK -> WarningAmber.copy(alpha = 0.12f)
                         TransmissionState.RETRANSMITTING -> WarningAmber.copy(alpha = 0.15f)
                         else -> PrimaryBlue.copy(alpha = 0.08f)
                     }
                 )
             ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = uiState.statusMessage,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = when (uiState.state) {
-                            TransmissionState.COMPLETED -> SuccessGreen
-                            TransmissionState.WAITING_ACK -> WarningAmber
-                            TransmissionState.RETRANSMITTING -> WarningAmber
+                            TransmissionState.COMPLETED, TransmissionState.BEACON_ACTIVE -> SuccessGreen
+                            TransmissionState.WAITING_ACK, TransmissionState.RETRANSMITTING -> WarningAmber
                             else -> PrimaryBlue
                         }
                     )
+                    if (uiState.isBeaconActive) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Beacon: ACTIVE (Period: 7s)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SuccessGreen
+                            )
+                            Text(
+                                text = "Auto-Served: ${uiState.detectedNewReceivers} new phone(s)",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
                 }
             }
 
@@ -177,11 +191,16 @@ fun TransmissionScreen(
             }
 
             // Bottom Action
-            if (isBroadcasting || uiState.state == TransmissionState.WAITING_ACK) {
+            if (isBroadcasting || uiState.state == TransmissionState.WAITING_ACK || uiState.state == TransmissionState.BEACON_ACTIVE) {
                 PrimaryButton(
-                    text = "Stop Broadcast",
-                    onClick = { viewModel.stopBroadcast() },
-                    containerColor = ErrorRed,
+                    text = if (uiState.state == TransmissionState.BEACON_ACTIVE) "Stop Beacon & Done" else "Stop Broadcast",
+                    onClick = {
+                        viewModel.stopBroadcast()
+                        if (uiState.state == TransmissionState.BEACON_ACTIVE) {
+                            onNavigateBack()
+                        }
+                    },
+                    containerColor = if (uiState.state == TransmissionState.BEACON_ACTIVE) PrimaryBlue else ErrorRed,
                     icon = Icons.Default.Stop
                 )
             } else {

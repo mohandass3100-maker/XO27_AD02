@@ -1,5 +1,15 @@
 package com.acoulink.ui
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.speech.RecognizerIntent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,14 +28,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Science
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,9 +56,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.acoulink.ui.components.PrimaryButton
 import com.acoulink.ui.theme.PrimaryBlue
 import com.acoulink.ui.theme.PrimaryBlueLight
@@ -64,7 +79,41 @@ fun SendScreen(
     onNavigateBack: () -> Unit,
     onNavigateToTransmission: () -> Unit
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+
+    // Speech-to-Text Recognition Launcher
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenMatches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spokenText = spokenMatches?.firstOrNull()?.trim()
+            if (!spokenText.isNullOrEmpty()) {
+                val current = uiState.inputText.trim()
+                val updated = if (current.isEmpty()) spokenText else "$current $spokenText"
+                viewModel.onInputTextChanged(updated)
+            }
+        }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            launchSpeechInput(context, speechLauncher)
+        } else {
+            Toast.makeText(context, "Microphone permission required for voice transcription", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onMicClick = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            launchSpeechInput(context, speechLauncher)
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -103,7 +152,7 @@ fun SendScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Text / URL Input Field
+            // Text / URL Input Field with Voice-to-Text Mic Icon
             OutlinedTextField(
                 value = uiState.inputText,
                 onValueChange = { viewModel.onInputTextChanged(it) },
@@ -111,7 +160,16 @@ fun SendScreen(
                     .fillMaxWidth()
                     .height(140.dp),
                 placeholder = {
-                    Text("Enter a message or URL to broadcast (e.g. Exam starts at 10:00 AM. https://example.com)")
+                    Text("Type or speak message/URL to broadcast (e.g. Exam starts at 10:00 AM. https://example.com)")
+                },
+                trailingIcon = {
+                    IconButton(onClick = onMicClick) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Voice to Text Input",
+                            tint = PrimaryBlue
+                        )
+                    }
                 },
                 shape = RoundedCornerShape(16.dp),
                 supportingText = {
@@ -142,6 +200,31 @@ fun SendScreen(
                 },
                 isError = uiState.errorMessage != null
             )
+
+            // Dedicated Voice Input Button for Easy Tap
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tap mic to speak instead of typing",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                FilledTonalButton(
+                    onClick = onMicClick,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = PrimaryBlueLight,
+                        contentColor = PrimaryBlue
+                    )
+                ) {
+                    Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Voice Input", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+            }
 
             if (uiState.errorMessage != null) {
                 Text(
@@ -258,7 +341,7 @@ fun SendScreen(
                     onNavigateToTransmission()
                 },
                 enabled = uiState.inputText.trim().isNotEmpty(),
-                icon = Icons.Default.VolumeUp
+                icon = Icons.AutoMirrored.Filled.VolumeUp
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -284,5 +367,21 @@ private fun SettingRow(label: String, value: String) {
             fontWeight = FontWeight.SemiBold,
             color = TextPrimary
         )
+    }
+}
+
+private fun launchSpeechInput(
+    context: Context,
+    launcher: ActivityResultLauncher<Intent>
+) {
+    try {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak message to broadcast over AcouLink...")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        launcher.launch(intent)
+    } catch (_: Exception) {
+        Toast.makeText(context, "Voice recognition service is not available on this device", Toast.LENGTH_SHORT).show()
     }
 }

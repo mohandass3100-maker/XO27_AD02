@@ -66,4 +66,33 @@ class PacketEncoderDecoderTest {
         assertEquals(0x1234, decoded.messageId)
         assertFalse(decoded.isCorrupted)
     }
+
+    @Test
+    fun testBeaconAndRequestPacketEncoding() {
+        val beacon = PacketEncoder.createBeaconPacket(messageId = 105, totalPackets = 4)
+        assertEquals(ProtocolConstants.TYPE_BEACON, beacon.type)
+        assertEquals(105, beacon.messageId)
+        assertEquals(4, beacon.totalPackets)
+        assertTrue(beacon.isBeacon)
+
+        val beaconFrame = PacketEncoder.serializeFrame(beacon)
+        val decoder = PacketDecoder()
+        val decodedBeacon = decoder.feedBytes(beaconFrame)[0]
+
+        assertEquals(ProtocolConstants.TYPE_BEACON, decodedBeacon.type)
+        assertEquals(105, decodedBeacon.messageId)
+        assertEquals(4, decodedBeacon.totalPackets)
+        assertFalse(decodedBeacon.isCorrupted)
+
+        val request = PacketEncoder.createRequestPacket(messageId = 105)
+        assertEquals(ProtocolConstants.TYPE_REQUEST, request.type)
+        assertTrue(request.isRequest)
+
+        val requestFrame = PacketEncoder.serializeFrame(request)
+        decoder.reset()
+        val decodedRequest = decoder.feedBytes(requestFrame)[0]
+        assertEquals(ProtocolConstants.TYPE_REQUEST, decodedRequest.type)
+        assertEquals(105, decodedRequest.messageId)
+        assertFalse(decodedRequest.isCorrupted)
+    }
 }

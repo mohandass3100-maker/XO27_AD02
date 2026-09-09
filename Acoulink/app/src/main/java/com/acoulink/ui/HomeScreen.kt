@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -65,7 +66,8 @@ fun HomeScreen(
     onNavigateToSend: () -> Unit,
     onNavigateToReceive: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -228,6 +230,16 @@ fun HomeScreen(
                     subtitle = "Zero Pairing",
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            OutlinedButton(
+                onClick = onNavigateToDiagnostics,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("View Live Acoustic Diagnostics & Telemetry")
             }
 
             Spacer(modifier = Modifier.height(16.dp))

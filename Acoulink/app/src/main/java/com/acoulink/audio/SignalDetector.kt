@@ -21,7 +21,7 @@ class SignalDetector(
     private val config: AudioConfig = AudioConfig()
 ) {
     private val demodulator = FSKDemodulator(config)
-    private var baselineNoiseFloor = 0.0005
+    private var baselineNoiseFloor = 0.00005
     private var consecutivePilotHits = 0
     private val requiredPilotHits = 3 // Minimum consecutive windows of pilot tone to confirm sync
 
@@ -37,11 +37,11 @@ class SignalDetector(
         
         // Update exponential moving average of noise floor if no pilot is present
         if (pilotPower < baselineNoiseFloor * config.detectionThresholdRatio) {
-            baselineNoiseFloor = (0.95 * baselineNoiseFloor) + (0.05 * max(totalAmbient, 0.0001))
+            baselineNoiseFloor = (0.95 * baselineNoiseFloor) + (0.05 * max(totalAmbient, 0.00001))
         }
 
         val snr = pilotPower / max(baselineNoiseFloor, 1e-9)
-        val isDetected = snr >= config.detectionThresholdRatio && pilotPower > 0.0005
+        val isDetected = snr >= config.detectionThresholdRatio && pilotPower > 0.00002
 
         if (isDetected) {
             consecutivePilotHits++
@@ -62,6 +62,18 @@ class SignalDetector(
             snr = snr,
             signalQualityPercent = quality
         )
+    }
+
+    /**
+     * Evaluates if Mark or Space data tone has superseded the pilot tone.
+     */
+    fun hasDataStarted(samples: ShortArray, offset: Int, length: Int): Boolean {
+        val pilotPower = demodulator.computeGoertzelPower(samples, offset, length, config.pilotFreq)
+        val spacePower = demodulator.computeGoertzelPower(samples, offset, length, config.spaceFreq)
+        val markPower = demodulator.computeGoertzelPower(samples, offset, length, config.markFreq)
+        val maxDataPower = maxOf(spacePower, markPower)
+
+        return maxDataPower > (pilotPower * 1.15) && maxDataPower > 0.00002
     }
 
     fun reset() {

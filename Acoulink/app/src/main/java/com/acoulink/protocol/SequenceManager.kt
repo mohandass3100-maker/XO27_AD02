@@ -7,6 +7,7 @@ sealed class SequenceStatus {
     data class Accepted(val packet: Packet, val isDuplicate: Boolean) : SequenceStatus()
     data class Corrupted(val packet: Packet) : SequenceStatus()
     object IgnoredWrongSession : SequenceStatus()
+    object IgnoredControlPacket : SequenceStatus()
 }
 
 /**
@@ -24,15 +25,31 @@ class SequenceManager {
     private val corruptedSequences = mutableSetOf<Int>()
 
     /**
+     * Sets the expected active message session explicitly (e.g. from beacon discovery).
+     */
+    fun setActiveSession(messageId: Int, total: Int) {
+        if (activeMessageId != messageId) {
+            reset()
+            activeMessageId = messageId
+            totalPackets = total
+        }
+    }
+
+    /**
      * Processes an incoming decoded packet.
      */
     fun processPacket(packet: Packet): SequenceStatus {
+        // Control packets (Beacon, Request, Ack, Nack) are handled by higher-level recovery coordinators
+        if (packet.type != ProtocolConstants.TYPE_DATA) {
+            return SequenceStatus.IgnoredControlPacket
+        }
+
         // Initialize or verify session MessageId
         if (activeMessageId == null) {
             activeMessageId = packet.messageId
             totalPackets = packet.totalPackets
         } else if (activeMessageId != packet.messageId) {
-            // Received packet from a different session
+            // If new message has different ID and we haven't completed current or new is higher version
             return SequenceStatus.IgnoredWrongSession
         }
 

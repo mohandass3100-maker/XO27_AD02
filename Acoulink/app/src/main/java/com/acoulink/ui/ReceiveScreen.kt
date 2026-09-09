@@ -240,6 +240,32 @@ fun ReceiveScreen(
                 badgeBackground = if (isListening) SecondaryCyanLight else Color(0xFFF3F4F6)
             )
 
+            // Dynamic Group Discovery Card
+            if (uiState.senderDetected) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = SuccessGreenLight.copy(alpha = 0.4f)),
+                    border = BorderStroke(1.dp, SuccessGreen)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "SENDER ACOUSTIC BEACON DETECTED",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = SuccessGreen
+                        )
+                        InfoRow("Sender Detected", "YES")
+                        InfoRow("Latest Message ID", "#${uiState.latestDiscoveredMessageId ?: "Pending"}")
+                        InfoRow("Total Segments", "${uiState.totalExpectedPackets} packets")
+                        InfoRow("Status", uiState.statusText)
+                    }
+                }
+            }
+
             // Reception Information Card
             Card(
                 modifier = Modifier.fillMaxWidth(),

@@ -70,7 +70,8 @@ import com.acoulink.viewmodel.SettingsViewModel
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateToHome: () -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -302,6 +303,13 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
+                OutlinedButton(
+                    onClick = onNavigateToDiagnostics,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Open Hardware Diagnostics & Telemetry")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

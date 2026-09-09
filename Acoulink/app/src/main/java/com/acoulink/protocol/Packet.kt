@@ -67,11 +67,19 @@ data class Packet(
         return result
     }
 
+    val isData: Boolean get() = type == ProtocolConstants.TYPE_DATA
+    val isBeacon: Boolean get() = type == ProtocolConstants.TYPE_BEACON
+    val isRequest: Boolean get() = type == ProtocolConstants.TYPE_REQUEST
+    val isNack: Boolean get() = type == ProtocolConstants.TYPE_NACK
+    val isAck: Boolean get() = type == ProtocolConstants.TYPE_ACK
+
     override fun toString(): String {
         val typeStr = when (type) {
             ProtocolConstants.TYPE_DATA -> "DATA"
             ProtocolConstants.TYPE_ACK -> "ACK"
             ProtocolConstants.TYPE_NACK -> "NACK"
+            ProtocolConstants.TYPE_BEACON -> "BEACON"
+            ProtocolConstants.TYPE_REQUEST -> "REQUEST"
             else -> "UNKNOWN(0x${type.toString(16)})"
         }
         return "Packet($typeStr, id=$formattedMessageId, seq=$formattedSequence/$formattedTotal, len=$payloadLength, crc=0x${Integer.toHexString(crc16).uppercase()}, corrupted=$isCorrupted)"

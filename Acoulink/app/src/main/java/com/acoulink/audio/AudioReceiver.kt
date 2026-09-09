@@ -9,6 +9,7 @@ import com.acoulink.protocol.PacketDecoder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -70,20 +71,39 @@ class AudioReceiver(
                 return@withContext
             }
 
-            val bufferSize = (minBufferSize * 2).coerceAtLeast(8192)
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                config.sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
+            val bufferSize = (minBufferSize * 4).coerceAtLeast(16384)
+            val audioSources = intArrayOf(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.DEFAULT,
+                MediaRecorder.AudioSource.MIC
             )
 
-            if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
+            var createdRecord: AudioRecord? = null
+            for (source in audioSources) {
+                try {
+                    val record = AudioRecord(
+                        source,
+                        config.sampleRate,
+                        AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize
+                    )
+                    if (record.state == AudioRecord.STATE_INITIALIZED) {
+                        createdRecord = record
+                        break
+                    } else {
+                        record.release()
+                    }
+                } catch (_: Exception) {}
+            }
+
+            if (createdRecord == null) {
                 listener.onError("AudioRecord initialization failed. Verify microphone permissions.")
                 return@withContext
             }
 
+            audioRecord = createdRecord
             activeAudioRecord = audioRecord
             audioRecord.startRecording()
 
@@ -91,64 +111,143 @@ class AudioReceiver(
             packetDecoder.reset()
             signalDetector.reset()
 
-            val readBuffer = ShortArray(config.samplesPerSymbol)
+            val readChunkSize = 512
+            val readBuffer = ShortArray(readChunkSize)
+            val symbolAccumulator = ArrayDeque<Short>(config.samplesPerSymbol * 4)
             val bitStream = mutableListOf<Int>()
+            val frameBits = mutableListOf<Int>()
+            var isPreambleLocked = false
+            var expectedTotalFrameBits = -1
             var currentState = ReceiverState.LISTENING
+            var pilotChunksHeard = 0
 
             while (isListening.get()) {
                 val samplesRead = audioRecord.read(readBuffer, 0, readBuffer.size)
                 if (samplesRead <= 0) continue
 
-                // 1. Analyze signal & pilot tone presence
-                val detection = signalDetector.processChunk(readBuffer, 0, samplesRead)
-
                 when (currentState) {
                     ReceiverState.LISTENING -> {
+                        val detection = signalDetector.processChunk(readBuffer, 0, samplesRead)
                         if (detection.isSignalDetected) {
-                            currentState = ReceiverState.SIGNAL_DETECTED
-                            listener.onStateChanged(currentState, detection.signalQualityPercent)
-                        }
-                    }
-
-                    ReceiverState.SIGNAL_DETECTED -> {
-                        if (detection.isSynchronized) {
-                            currentState = ReceiverState.SYNCHRONIZING
-                            listener.onStateChanged(currentState, detection.signalQualityPercent)
-                        } else if (!detection.isSignalDetected) {
-                            currentState = ReceiverState.LISTENING
-                            listener.onStateChanged(currentState, detection.signalQualityPercent)
+                            listener.onStateChanged(ReceiverState.SIGNAL_DETECTED, detection.signalQualityPercent)
+                            if (detection.isSynchronized) {
+                                currentState = ReceiverState.SYNCHRONIZING
+                                pilotChunksHeard = 3
+                                listener.onStateChanged(ReceiverState.SYNCHRONIZING, detection.signalQualityPercent)
+                            }
                         }
                     }
 
                     ReceiverState.SYNCHRONIZING -> {
-                        // When pilot ends (transition from pilot tone to guard/data), transition to RECEIVING
-                        if (!detection.isSignalDetected) {
+                        pilotChunksHeard++
+                        val dataStarted = signalDetector.hasDataStarted(readBuffer, 0, samplesRead)
+                        val detection = signalDetector.processChunk(readBuffer, 0, samplesRead)
+
+                        if (dataStarted || (!detection.isSignalDetected && pilotChunksHeard >= 4)) {
+                            // Transition from Pilot to Data reception
                             currentState = ReceiverState.RECEIVING
-                            listener.onStateChanged(currentState, detection.signalQualityPercent)
+                            listener.onStateChanged(ReceiverState.RECEIVING, 95)
+                            symbolAccumulator.clear()
                             bitStream.clear()
+                            frameBits.clear()
+                            isPreambleLocked = false
+                            expectedTotalFrameBits = -1
+
+                            for (i in 0 until samplesRead) {
+                                symbolAccumulator.add(readBuffer[i])
+                            }
                         }
                     }
 
                     ReceiverState.RECEIVING -> {
-                        // Demodulate BFSK symbol window
-                        val symbol = demodulator.demodulateSymbolWindow(readBuffer, 0, samplesRead)
-                        bitStream.add(symbol.bit)
-
-                        // When we have accumulated full bytes (multiples of 8 bits)
-                        if (bitStream.size >= 8 && bitStream.size % 8 == 0) {
-                            val chunkBytes = demodulator.bitsToBytes(bitStream)
-                            val discoveredPackets = packetDecoder.feedBytes(chunkBytes)
-                            for (packet in discoveredPackets) {
-                                listener.onPacketDecoded(packet)
-                            }
-                            bitStream.clear()
+                        for (i in 0 until samplesRead) {
+                            symbolAccumulator.add(readBuffer[i])
                         }
 
-                        // If signal dropped completely for extended period, revert to LISTENING
-                        if (detection.snr < 1.1 && !symbol.isConfident && bitStream.size > 256) {
-                            currentState = ReceiverState.LISTENING
-                            listener.onStateChanged(currentState, 0)
-                            bitStream.clear()
+                        val samplesPerSymbol = config.samplesPerSymbol
+                        while (symbolAccumulator.size >= samplesPerSymbol && isListening.get()) {
+                            val symbolSamples = ShortArray(samplesPerSymbol)
+                            for (s in 0 until samplesPerSymbol) {
+                                symbolSamples[s] = symbolAccumulator.removeFirst()
+                            }
+
+                            val symbol = demodulator.demodulateSymbolWindow(symbolSamples, 0, samplesPerSymbol)
+                            bitStream.add(symbol.bit)
+
+                            if (!isPreambleLocked) {
+                                // Continuously match trailing bits to preamble sync (0xAA, 0x55, 0x7E)
+                                if (FSKDemodulator.matchesTrailingPreamble(bitStream, maxErrors = 2)) {
+                                    isPreambleLocked = true
+                                    frameBits.clear()
+                                    expectedTotalFrameBits = -1
+                                } else if (bitStream.size > 140) {
+                                    // Reset on timeout without preamble lock
+                                    currentState = ReceiverState.LISTENING
+                                    listener.onStateChanged(ReceiverState.LISTENING, 0)
+                                    symbolAccumulator.clear()
+                                    bitStream.clear()
+                                    signalDetector.reset()
+                                    break
+                                }
+                            } else {
+                                frameBits.add(symbol.bit)
+
+                                // Once 48 bits (6 header bytes: Type, MsgId, Seq, Total, Len) are received, parse length
+                                if (expectedTotalFrameBits == -1 && frameBits.size >= 48) {
+                                    val headerBytes = demodulator.bitsToBytes(frameBits.take(48))
+                                    val payloadLen = headerBytes[5].toInt() and 0xFF
+                                    expectedTotalFrameBits = (6 + payloadLen + 2) * 8
+                                }
+
+                                if (expectedTotalFrameBits != -1 && frameBits.size >= expectedTotalFrameBits) {
+                                    val packetBits = frameBits.take(expectedTotalFrameBits)
+                                    val packetBytes = demodulator.bitsToBytes(packetBits)
+
+                                    val type = packetBytes[0]
+                                    val msgId = ((packetBytes[1].toInt() and 0xFF) shl 8) or (packetBytes[2].toInt() and 0xFF)
+                                    val seq = packetBytes[3].toInt() and 0xFF
+                                    val total = packetBytes[4].toInt() and 0xFF
+                                    val len = packetBytes[5].toInt() and 0xFF
+
+                                    if (6 + len + 2 <= packetBytes.size) {
+                                        val payload = ByteArray(len)
+                                        System.arraycopy(packetBytes, 6, payload, 0, len)
+                                        val receivedCrc = ((packetBytes[6 + len].toInt() and 0xFF) shl 8) or (packetBytes[6 + len + 1].toInt() and 0xFF)
+
+                                        val calculatedCrc = com.acoulink.protocol.PacketEncoder.calculatePacketCrc(
+                                            type = type,
+                                            messageId = msgId,
+                                            sequenceNumber = seq,
+                                            totalPackets = total,
+                                            payload = payload
+                                        )
+
+                                        val isCorrupted = (calculatedCrc and 0xFFFF) != (receivedCrc and 0xFFFF)
+                                        val packet = Packet(
+                                            type = type,
+                                            messageId = msgId,
+                                            sequenceNumber = seq,
+                                            totalPackets = total,
+                                            payload = payload,
+                                            crc16 = receivedCrc,
+                                            isCorrupted = isCorrupted
+                                        )
+
+                                        listener.onPacketDecoded(packet)
+                                    }
+
+                                    // Return to listening state for following frames
+                                    currentState = ReceiverState.LISTENING
+                                    listener.onStateChanged(ReceiverState.LISTENING, 0)
+                                    symbolAccumulator.clear()
+                                    bitStream.clear()
+                                    frameBits.clear()
+                                    isPreambleLocked = false
+                                    expectedTotalFrameBits = -1
+                                    signalDetector.reset()
+                                    break
+                                }
+                            }
                         }
                     }
 

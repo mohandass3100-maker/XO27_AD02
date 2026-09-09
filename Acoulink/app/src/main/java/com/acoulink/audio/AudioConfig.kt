@@ -15,14 +15,14 @@ enum class FrequencyProfile(
         markFreq = 2150.0,
         spaceFreq = 1750.0,
         pilotFreq = 1400.0,
-        defaultSymbolDurationMs = 35
+        defaultSymbolDurationMs = 40
     ),
     HIGH_AUDIBLE(
         displayName = "High Audible (3.2 - 3.8 kHz)",
         markFreq = 3800.0,
         spaceFreq = 3200.0,
         pilotFreq = 2600.0,
-        defaultSymbolDurationMs = 30
+        defaultSymbolDurationMs = 40
     ),
     NEAR_ULTRASONIC(
         displayName = "Near Ultrasonic (17.5 - 18.5 kHz)",
@@ -39,11 +39,11 @@ enum class FrequencyProfile(
 data class AudioConfig(
     val sampleRate: Int = 44100,
     val profile: FrequencyProfile = FrequencyProfile.STANDARD_AUDIBLE,
-    val symbolDurationMs: Int = 35,
-    val pilotDurationMs: Int = 120,
-    val guardSilenceMs: Int = 40,
-    val amplitude: Double = 0.85, // 0.0 to 1.0 peak amplitude
-    val detectionThresholdRatio: Double = 2.2 // Detection energy ratio over baseline noise floor
+    val symbolDurationMs: Int = 40,
+    val pilotDurationMs: Int = 240,
+    val guardSilenceMs: Int = 0,
+    val amplitude: Double = 0.90, // 0.0 to 1.0 peak amplitude
+    val detectionThresholdRatio: Double = 2.0 // Detection energy ratio over baseline noise floor
 ) {
     val markFreq: Double get() = profile.markFreq
     val spaceFreq: Double get() = profile.spaceFreq

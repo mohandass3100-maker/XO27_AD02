@@ -96,6 +96,59 @@ object PacketEncoder {
     }
 
     /**
+     * Constructs an acoustic BEACON packet advertising the latest available message.
+     * Sequence = 0, Total = totalPackets in message.
+     * Payload = [PROTOCOL_VERSION, messageVersion]
+     */
+    fun createBeaconPacket(messageId: Int, totalPackets: Int, version: Int = 1): Packet {
+        val payload = byteArrayOf(ProtocolConstants.PROTOCOL_VERSION, (version and 0xFF).toByte())
+        val crc = calculatePacketCrc(
+            type = ProtocolConstants.TYPE_BEACON,
+            messageId = messageId,
+            sequenceNumber = 0,
+            totalPackets = totalPackets,
+            payload = payload
+        )
+        return Packet(
+            type = ProtocolConstants.TYPE_BEACON,
+            messageId = messageId,
+            sequenceNumber = 0,
+            totalPackets = totalPackets,
+            payload = payload,
+            crc16 = crc,
+            isCorrupted = false
+        )
+    }
+
+    /**
+     * Constructs an acoustic REQUEST packet asking sender to retransmit the latest message or specific segments.
+     * If requestedSequences is empty, requests all segments of messageId.
+     */
+    fun createRequestPacket(messageId: Int, requestedSequences: List<Int> = emptyList()): Packet {
+        val payload = if (requestedSequences.isEmpty()) {
+            byteArrayOf(0x00) // 0x00 indicates request all packets
+        } else {
+            ByteArray(requestedSequences.size) { i -> requestedSequences[i].toByte() }
+        }
+        val crc = calculatePacketCrc(
+            type = ProtocolConstants.TYPE_REQUEST,
+            messageId = messageId,
+            sequenceNumber = 0,
+            totalPackets = 1,
+            payload = payload
+        )
+        return Packet(
+            type = ProtocolConstants.TYPE_REQUEST,
+            messageId = messageId,
+            sequenceNumber = 0,
+            totalPackets = 1,
+            payload = payload,
+            crc16 = crc,
+            isCorrupted = false
+        )
+    }
+
+    /**
      * Serializes a Packet into a raw byte frame ready for acoustic modulation.
      * Frame format:
      * [PREAMBLE(3) | TYPE(1) | MSG_ID(2) | SEQ(1) | TOTAL(1) | LEN(1) | PAYLOAD(N) | CRC16(2)]

@@ -30,9 +30,9 @@ class FSKModulator(
         val samplesPerSymbol = config.samplesPerSymbol
         val pilotSamples = config.pilotSampleCount
         val guardSamples = config.guardSampleCount
+        val trailingSilenceSamples = (sampleRate * 0.25).toInt() // 250ms trailing buffer flush
         val totalBits = bytes.size * 8
-
-        val totalSamples = pilotSamples + guardSamples + (totalBits * samplesPerSymbol) + guardSamples
+        val totalSamples = pilotSamples + guardSamples + (totalBits * samplesPerSymbol) + guardSamples + trailingSilenceSamples
         val pcm = ShortArray(totalSamples)
 
         var sampleIndex = 0
@@ -45,14 +45,14 @@ class FSKModulator(
         val rampSamples = (samplesPerSymbol / 2).coerceAtLeast(16)
 
         for (i in 0 until pilotSamples) {
-            // Apply soft ramp-in and ramp-out to pilot tone
-            val rampEnvelope = calculateEnvelope(i, pilotSamples, rampSamples)
+            // Apply soft ramp-in to pilot tone to prevent speaker clicks
+            val rampEnvelope = if (i < rampSamples) 0.5 * (1.0 - cos(PI * i / rampSamples)) else 1.0
             val sampleVal = (sin(phase) * maxAmplitude * rampEnvelope).toInt()
             pcm[sampleIndex++] = sampleVal.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
             phase = (phase + pilotPhaseIncrement) % (2.0 * PI)
         }
 
-        // 2. Guard silence
+        // 2. Guard silence (if configured)
         for (i in 0 until guardSamples) {
             pcm[sampleIndex++] = 0
         }
@@ -73,11 +73,9 @@ class FSKModulator(
             }
         }
 
-        // 4. Post-guard silence
-        for (i in 0 until guardSamples) {
-            if (sampleIndex < pcm.size) {
-                pcm[sampleIndex++] = 0
-            }
+        // 4. Trailing silence to guarantee complete hardware drain without truncating CRC
+        while (sampleIndex < pcm.size) {
+            pcm[sampleIndex++] = 0
         }
 
         return pcm

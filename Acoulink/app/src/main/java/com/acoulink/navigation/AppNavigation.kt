@@ -37,6 +37,7 @@ object AppRoutes {
     const val HISTORY = "history"
     const val DETAILS = "details"
     const val SETTINGS = "settings"
+    const val DIAGNOSTICS = "diagnostics"
 }
 
 @Composable
@@ -68,7 +69,8 @@ fun AppNavigation(
                 onNavigateToSend = { navController.navigate(AppRoutes.SEND) },
                 onNavigateToReceive = { navController.navigate(AppRoutes.RECEIVE) },
                 onNavigateToHistory = { navController.navigate(AppRoutes.HISTORY) },
-                onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) }
+                onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
+                onNavigateToDiagnostics = { navController.navigate(AppRoutes.DIAGNOSTICS) }
             )
         }
 
@@ -171,7 +173,17 @@ fun AppNavigation(
                         popUpTo(AppRoutes.HOME) { inclusive = false }
                     }
                 },
-                onNavigateToHistory = { navController.navigate(AppRoutes.HISTORY) }
+                onNavigateToHistory = { navController.navigate(AppRoutes.HISTORY) },
+                onNavigateToDiagnostics = { navController.navigate(AppRoutes.DIAGNOSTICS) }
+            )
+        }
+
+        composable(AppRoutes.DIAGNOSTICS) {
+            com.acoulink.ui.DiagnosticsScreen(
+                homeViewModel = homeViewModel,
+                sendViewModel = sendViewModel,
+                receiveViewModel = receiveViewModel,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

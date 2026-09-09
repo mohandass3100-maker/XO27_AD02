@@ -103,9 +103,12 @@ class AudioSender(
 
                 listener?.onPacketTransmitted(index + 1, packets.size, packet)
 
-                // Guard silence interval between frames
+                // Wait for hardware buffer to drain and provide guard interval
                 if (index < packets.size - 1 && isTransmitting.get()) {
-                    kotlinx.coroutines.delay(ProtocolConstants.GUARD_INTERVAL_MS)
+                    kotlinx.coroutines.delay(ProtocolConstants.GUARD_INTERVAL_MS.coerceAtLeast(150L))
+                } else if (isTransmitting.get()) {
+                    // Final packet: wait for speaker to finish playing trailing silence before releasing AudioTrack
+                    kotlinx.coroutines.delay(350L)
                 }
             }
 
