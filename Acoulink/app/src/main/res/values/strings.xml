@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">AcouLink</string>
+    <string name="app_tagline">Communicate through sound.</string>
+    <string name="app_description">Offline acoustic communication for nearby Android devices.</string>
+</resources>
